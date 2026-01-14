@@ -116,7 +116,7 @@
   }
 
   .status-bar {
-    @apply h-6 px-3 text-xs flex items-center gap-4 border-t border-border bg-sidebar-background text-muted-foreground;
+    @apply h-6 px-3 text-xs flex items-center gap-4 border-t border-border bg-sidebar text-muted-foreground;
   }
 
   .tab-button {
