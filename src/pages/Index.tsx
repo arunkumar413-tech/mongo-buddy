@@ -47,6 +47,7 @@ const Index = () => {
   const [connectionUri, setConnectionUri] = useState("mongodb://localhost:27017");
   const [isConnecting, setIsConnecting] = useState(false);
   const [databases, setDatabases] = useState<any[]>([]);
+  const [collectionFields, setCollectionFields] = useState<string[]>([]);
 
   // History state
   const [history, setHistory] = useState<HistoryItemType[]>(() => {
@@ -111,13 +112,27 @@ const Index = () => {
     }
   };
 
-  const handleSelectCollection = useCallback((db: string, collection: string) => {
+  const handleSelectCollection = useCallback(async (db: string, collection: string) => {
     setSelectedCollection({ db, collection });
     setQuery(`db.${collection}.find({})`);
     // Optionally auto-execute or just clear results
     setResults([]);
     setError(null);
     setExecutionTime(null);
+
+    // Fetch fields for the selected collection
+    try {
+      const res = await fetch(`${API_URL}/fields/${db}/${collection}`);
+      if (res.ok) {
+        const fields = await res.json();
+        setCollectionFields(fields);
+      } else {
+        setCollectionFields([]);
+      }
+    } catch (err) {
+      console.error("Failed to fetch fields:", err);
+      setCollectionFields([]);
+    }
   }, []);
 
   const handleExecuteQuery = useCallback(async () => {
@@ -202,6 +217,7 @@ const Index = () => {
                   isExecuting={isExecuting}
                   executionTime={executionTime}
                   activeCollection={selectedCollection?.collection || null}
+                  fields={collectionFields}
                 />
               </ResizablePanel>
 
