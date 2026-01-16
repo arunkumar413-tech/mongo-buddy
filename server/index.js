@@ -2,6 +2,7 @@ const express = require('express');
 const { MongoClient, ObjectId } = require('mongodb');
 const cors = require('cors');
 require('dotenv').config();
+const jwt = require('jsonwebtoken');
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -29,11 +30,35 @@ const requireConnection = (req, res, next) => {
     next();
 };
 
-app.get('/api/environments', (req, res) => {
+// Auth Middleware
+const authenticateToken = (req, res, next) => {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (!token) return res.status(401).json({ error: 'Unauthorized' });
+
+    jwt.verify(token, process.env.JWT_SECRET, (err, user) => {
+        if (err) return res.status(403).json({ error: 'Forbidden' });
+        req.user = user;
+        next();
+    });
+};
+
+app.post('/api/login', (req, res) => {
+    const { password } = req.body;
+    if (password === process.env.AUTH_PASSWORD) {
+        const accessToken = jwt.sign({ name: 'user' }, process.env.JWT_SECRET);
+        res.json({ accessToken });
+    } else {
+        res.status(401).json({ error: 'Invalid password' });
+    }
+});
+
+app.get('/api/environments', authenticateToken, (req, res) => {
     res.json(Object.keys(environments));
 });
 
-app.post('/api/connect', async (req, res) => {
+app.post('/api/connect', authenticateToken, async (req, res) => {
     const { environment } = req.body;
 
     if (!environment) {
@@ -59,7 +84,7 @@ app.post('/api/connect', async (req, res) => {
     }
 });
 
-app.get('/api/databases', requireConnection, async (req, res) => {
+app.get('/api/databases', authenticateToken, requireConnection, async (req, res) => {
     try {
         const adminDb = client.db().admin();
         const result = await adminDb.listDatabases();
@@ -84,7 +109,7 @@ app.get('/api/databases', requireConnection, async (req, res) => {
     }
 });
 
-app.get('/api/collections/:dbName', requireConnection, async (req, res) => {
+app.get('/api/collections/:dbName', authenticateToken, requireConnection, async (req, res) => {
     try {
         const { dbName } = req.params;
         const db = client.db(dbName);
@@ -105,7 +130,7 @@ app.get('/api/collections/:dbName', requireConnection, async (req, res) => {
     }
 });
 
-app.get("/api/fields/:dbName/:collectionName", async (req, res) => {
+app.get("/api/fields/:dbName/:collectionName", authenticateToken, async (req, res) => {
     if (!client) {
         return res.status(400).json({ error: "Not connected to database" });
     }
@@ -131,7 +156,7 @@ app.get("/api/fields/:dbName/:collectionName", async (req, res) => {
     }
 });
 
-app.post('/api/execute', requireConnection, async (req, res) => {
+app.post('/api/execute', authenticateToken, requireConnection, async (req, res) => {
     const { query, dbName } = req.body;
 
     if (!query || !dbName) {

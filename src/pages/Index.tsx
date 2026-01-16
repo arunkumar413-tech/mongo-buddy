@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { Header } from "@/components/Header";
 import { DatabaseSidebar } from "@/components/DatabaseSidebar";
 import { QueryEditor } from "@/components/QueryEditor";
@@ -31,6 +32,7 @@ db.products.find({ price: { $lt: 100 } })`;
 const API_URL = "http://localhost:3001/api";
 
 const Index = () => {
+  const navigate = useNavigate();
   const [selectedCollection, setSelectedCollection] = useState<{
     db: string;
     collection: string;
@@ -66,7 +68,14 @@ const Index = () => {
 
   const fetchEnvironments = async () => {
     try {
-      const res = await fetch(`${API_URL}/environments`);
+      const token = localStorage.getItem("token");
+      const res = await fetch(`${API_URL}/environments`, {
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      if (res.status === 401 || res.status === 403) {
+        navigate("/login");
+        return;
+      }
       if (res.ok) {
         const data = await res.json();
         setEnvironments(data);
@@ -104,11 +113,20 @@ const Index = () => {
 
     setIsConnecting(true);
     try {
+      const token = localStorage.getItem("token");
       const res = await fetch(`${API_URL}/connect`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
         body: JSON.stringify({ environment: selectedEnvironment }),
       });
+
+      if (res.status === 401 || res.status === 403) {
+        navigate("/login");
+        return;
+      }
 
       if (!res.ok) {
         const data = await res.json();
@@ -128,7 +146,14 @@ const Index = () => {
 
   const fetchDatabases = async () => {
     try {
-      const res = await fetch(`${API_URL}/databases`);
+      const token = localStorage.getItem("token");
+      const res = await fetch(`${API_URL}/databases`, {
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      if (res.status === 401 || res.status === 403) {
+        navigate("/login");
+        return;
+      }
       if (!res.ok) throw new Error("Failed to fetch databases");
       const data = await res.json();
       setDatabases(data);
@@ -148,7 +173,14 @@ const Index = () => {
 
     // Fetch fields for the selected collection
     try {
-      const res = await fetch(`${API_URL}/fields/${db}/${collection}`);
+      const token = localStorage.getItem("token");
+      const res = await fetch(`${API_URL}/fields/${db}/${collection}`, {
+        headers: { "Authorization": `Bearer ${token}` }
+      });
+      if (res.status === 401 || res.status === 403) {
+        navigate("/login");
+        return;
+      }
       if (res.ok) {
         const fields = await res.json();
         setCollectionFields(fields);
@@ -172,14 +204,23 @@ const Index = () => {
     const startTime = performance.now();
 
     try {
+      const token = localStorage.getItem("token");
       const res = await fetch(`${API_URL}/execute`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${token}`
+        },
         body: JSON.stringify({
           query,
           dbName: selectedCollection.db
         }),
       });
+
+      if (res.status === 401 || res.status === 403) {
+        navigate("/login");
+        return;
+      }
 
       const data = await res.json();
 
