@@ -12,6 +12,15 @@ app.use(express.json());
 let client = null;
 let activeDb = null;
 
+// Load environments from .env
+const environments = {};
+Object.keys(process.env).forEach(key => {
+    if (key.startsWith('DB_URI_')) {
+        const envName = key.replace('DB_URI_', '');
+        environments[envName] = process.env[key];
+    }
+});
+
 // Middleware to check if connected
 const requireConnection = (req, res, next) => {
     if (!client) {
@@ -20,10 +29,20 @@ const requireConnection = (req, res, next) => {
     next();
 };
 
+app.get('/api/environments', (req, res) => {
+    res.json(Object.keys(environments));
+});
+
 app.post('/api/connect', async (req, res) => {
-    const { uri } = req.body;
+    const { environment } = req.body;
+
+    if (!environment) {
+        return res.status(400).json({ error: 'Environment is required' });
+    }
+
+    const uri = environments[environment];
     if (!uri) {
-        return res.status(400).json({ error: 'URI is required' });
+        return res.status(400).json({ error: 'Invalid environment' });
     }
 
     try {
@@ -32,8 +51,8 @@ app.post('/api/connect', async (req, res) => {
         }
         client = new MongoClient(uri);
         await client.connect();
-        console.log('Connected to MongoDB');
-        res.json({ success: true, message: 'Connected successfully' });
+        console.log(`Connected to MongoDB (${environment})`);
+        res.json({ success: true, message: `Connected to ${environment} successfully` });
     } catch (error) {
         console.error('Connection failed:', error);
         res.status(500).json({ error: error.message });

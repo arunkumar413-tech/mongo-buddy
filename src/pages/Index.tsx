@@ -44,7 +44,8 @@ const Index = () => {
   // Connection state
   const [isConnected, setIsConnected] = useState(false);
   const [showConnectDialog, setShowConnectDialog] = useState(true);
-  const [connectionUri, setConnectionUri] = useState("mongodb://localhost:27017");
+  const [environments, setEnvironments] = useState<string[]>([]);
+  const [selectedEnvironment, setSelectedEnvironment] = useState("");
   const [isConnecting, setIsConnecting] = useState(false);
   const [databases, setDatabases] = useState<any[]>([]);
   const [collectionFields, setCollectionFields] = useState<string[]>([]);
@@ -58,6 +59,26 @@ const Index = () => {
   useEffect(() => {
     localStorage.setItem("queryHistory", JSON.stringify(history));
   }, [history]);
+
+  useEffect(() => {
+    fetchEnvironments();
+  }, []);
+
+  const fetchEnvironments = async () => {
+    try {
+      const res = await fetch(`${API_URL}/environments`);
+      if (res.ok) {
+        const data = await res.json();
+        setEnvironments(data);
+        if (data.length > 0) {
+          setSelectedEnvironment(data[0]);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to fetch environments:", err);
+      toast.error("Failed to load environments");
+    }
+  };
 
   const addToHistory = useCallback((queryStr: string, duration: string) => {
     setHistory(prev => {
@@ -76,12 +97,17 @@ const Index = () => {
   }, []);
 
   const handleConnect = async () => {
+    if (!selectedEnvironment) {
+      toast.error("Please select an environment");
+      return;
+    }
+
     setIsConnecting(true);
     try {
       const res = await fetch(`${API_URL}/connect`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ uri: connectionUri }),
+        body: JSON.stringify({ environment: selectedEnvironment }),
       });
 
       if (!res.ok) {
@@ -91,7 +117,7 @@ const Index = () => {
 
       setIsConnected(true);
       setShowConnectDialog(false);
-      toast.success("Connected to MongoDB");
+      toast.success(`Connected to ${selectedEnvironment}`);
       fetchDatabases();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Connection failed");
@@ -255,13 +281,19 @@ const Index = () => {
           </DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid gap-2">
-              <Label htmlFor="uri">Connection String</Label>
-              <Input
-                id="uri"
-                value={connectionUri}
-                onChange={(e) => setConnectionUri(e.target.value)}
-                placeholder="mongodb://localhost:27017"
-              />
+              <Label htmlFor="environment">Environment</Label>
+              <select
+                id="environment"
+                className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                value={selectedEnvironment}
+                onChange={(e) => setSelectedEnvironment(e.target.value)}
+              >
+                {environments.map((env) => (
+                  <option key={env} value={env}>
+                    {env}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
           <DialogFooter>
