@@ -49,6 +49,27 @@ const getCollectionFromQuery = (query: string): string | null => {
   return match ? match[1] : null;
 };
 
+const getEnvColorClass = (env: string | null, isActive: boolean) => {
+  if (!env) return isActive ? "bg-background border-border text-foreground" : "hover:bg-muted/60 text-muted-foreground hover:text-foreground";
+
+  const upperEnv = env.toUpperCase();
+  const isProd = upperEnv.includes("PROD");
+  const isDev = upperEnv.includes("DEV");
+
+  if (isProd) {
+    return isActive
+      ? "bg-red-500/10 border-red-500/30 text-red-500"
+      : "hover:bg-red-500/5 text-red-500/70 hover:text-red-500";
+  }
+  if (isDev) {
+    return isActive
+      ? "bg-green-500/10 border-green-500/30 text-green-500"
+      : "hover:bg-green-500/5 text-green-500/70 hover:text-green-500";
+  }
+
+  return isActive ? "bg-background border-border text-foreground" : "hover:bg-muted/60 text-muted-foreground hover:text-foreground";
+};
+
 const Index = () => {
   const navigate = useNavigate();
   const [selectedCollection, setSelectedCollection] = useState<{
@@ -392,10 +413,8 @@ const Index = () => {
                   <div
                     key={tab.id}
                     className={cn(
-                      "group flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-t-md cursor-pointer border-t border-x border-transparent select-none min-w-[100px] max-w-[200px]",
-                      activeTabId === tab.id
-                        ? "bg-background border-border text-foreground"
-                        : "hover:bg-muted/60 text-muted-foreground hover:text-foreground"
+                      "group flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-t-md cursor-pointer border-t border-x border-transparent select-none min-w-[100px] max-w-[200px] transition-colors",
+                      getEnvColorClass(tab.environment, activeTabId === tab.id)
                     )}
                     onClick={() => setActiveTabId(tab.id)}
                   >
