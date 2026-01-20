@@ -1,6 +1,6 @@
 import { useRef, useCallback, useEffect } from "react";
 import Editor, { OnMount, useMonaco } from "@monaco-editor/react";
-import { Play, Save, Clock, Trash2, BookOpen, AlignLeft } from "lucide-react";
+import { Play, Save, Clock, Trash2, BookOpen, AlignLeft, Globe } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -14,6 +14,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 import { createMongoCompletionProvider } from "@/lib/mongoAutocomplete";
 
 interface QueryEditorProps {
@@ -25,6 +26,9 @@ interface QueryEditorProps {
   activeCollection: string | null;
   fields?: string[];
   collections?: string[];
+  environments?: string[];
+  selectedEnvironment?: string | null;
+  onEnvironmentChange?: (env: string) => void;
 }
 
 export function QueryEditor({
@@ -36,6 +40,9 @@ export function QueryEditor({
   activeCollection,
   fields = [],
   collections = [],
+  environments = [],
+  selectedEnvironment = null,
+  onEnvironmentChange,
 }: QueryEditorProps) {
   const editorRef = useRef<unknown>(null);
   const monaco = useMonaco();
@@ -107,6 +114,36 @@ export function QueryEditor({
           )}
         </div>
         <div className="flex items-center gap-1">
+          {environments.length > 0 && (
+            <DropdownMenu>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="sm" className="h-7 px-2 gap-1.5 text-xs font-medium">
+                      <Globe className="h-3.5 w-3.5 text-muted-foreground" />
+                      {selectedEnvironment || "Select Env"}
+                    </Button>
+                  </DropdownMenuTrigger>
+                </TooltipTrigger>
+                <TooltipContent>Select Environment</TooltipContent>
+              </Tooltip>
+              <DropdownMenuContent align="start" className="w-40">
+                {environments.map((env) => (
+                  <DropdownMenuItem
+                    key={env}
+                    onClick={() => onEnvironmentChange?.(env)}
+                    className={cn(
+                      "text-xs",
+                      selectedEnvironment === env && "bg-primary/10 text-primary font-semibold"
+                    )}
+                  >
+                    {env}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+
           <DropdownMenu>
             <Tooltip>
               <TooltipTrigger asChild>

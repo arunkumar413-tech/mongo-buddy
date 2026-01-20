@@ -41,6 +41,7 @@ interface Tab {
   error: string | null;
   isExecuting: boolean;
   executionTime: string | null;
+  environment: string | null;
 }
 
 const getCollectionFromQuery = (query: string): string | null => {
@@ -65,6 +66,7 @@ const Index = () => {
       error: null,
       isExecuting: false,
       executionTime: null,
+      environment: null,
     },
   ]);
   const [activeTabId, setActiveTabId] = useState("1");
@@ -135,10 +137,11 @@ const Index = () => {
       error: null,
       isExecuting: false,
       executionTime: null,
+      environment: activeTab.environment,
     };
     setTabs((prev) => [...prev, newTab]);
     setActiveTabId(newId);
-  }, [tabs.length]);
+  }, [tabs.length, activeTab.environment]);
 
   const handleCloseTab = useCallback((e: React.MouseEvent, id: string) => {
     e.stopPropagation();
@@ -168,11 +171,17 @@ const Index = () => {
     setHistory([]);
   }, []);
 
-  const fetchDatabases = useCallback(async () => {
+  const fetchDatabases = useCallback(async (env?: string) => {
+    const targetEnv = env || activeTab.environment;
+    if (!targetEnv) return;
+
     try {
       const token = localStorage.getItem("token");
       const res = await fetch(`${API_URL}/databases`, {
-        headers: { "Authorization": `Bearer ${token}` }
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "x-environment": targetEnv
+        }
       });
       if (res.status === 401 || res.status === 403) {
         navigate("/login");
@@ -185,7 +194,7 @@ const Index = () => {
       console.error(err);
       toast.error("Failed to load databases");
     }
-  }, [navigate]);
+  }, [navigate, activeTab.environment]);
 
   const handleConnect = async () => {
     if (!selectedEnvironment) {
@@ -218,7 +227,10 @@ const Index = () => {
       setIsConnected(true);
       setShowConnectDialog(false);
       toast.success(`Connected to ${selectedEnvironment}`);
-      fetchDatabases();
+
+      // Update active tab environment
+      updateActiveTab({ environment: selectedEnvironment });
+      fetchDatabases(selectedEnvironment);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Connection failed");
     } finally {
@@ -247,7 +259,10 @@ const Index = () => {
     try {
       const token = localStorage.getItem("token");
       const res = await fetch(`${API_URL}/fields/${db}/${collection}`, {
-        headers: { "Authorization": `Bearer ${token}` }
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "x-environment": activeTab.environment || ""
+        }
       });
       if (res.status === 401 || res.status === 403) {
         navigate("/login");
@@ -263,7 +278,7 @@ const Index = () => {
       console.error("Failed to fetch fields:", err);
       setCollectionFields([]);
     }
-  }, [activeTabId, navigate]);
+  }, [activeTabId, navigate, activeTab.environment]);
 
   const handleExecuteQuery = useCallback(async () => {
     const parsedCollection = getCollectionFromQuery(activeTab.query);
@@ -298,7 +313,8 @@ const Index = () => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`
+          "Authorization": `Bearer ${token}`,
+          "x-environment": activeTab.environment || ""
         },
         body: JSON.stringify({
           query: activeTab.query,
@@ -334,7 +350,7 @@ const Index = () => {
         isExecuting: false
       });
     }
-  }, [activeTab.query, selectedCollection, databases, updateActiveTab, addToHistory, navigate]);
+  }, [activeTab.query, activeTab.environment, selectedCollection, databases, updateActiveTab, addToHistory, navigate]);
 
   const handleSelectFromHistory = useCallback((historyQuery: string) => {
     updateActiveTab({ query: historyQuery });
@@ -415,6 +431,12 @@ const Index = () => {
                     activeCollection={displayCollection}
                     fields={collectionFields}
                     collections={databases.flatMap(db => db.collections.map(c => c.name))}
+                    environments={environments}
+                    selectedEnvironment={activeTab.environment}
+                    onEnvironmentChange={(env) => {
+                      updateActiveTab({ environment: env });
+                      fetchDatabases(env);
+                    }}
                   />
                 </ResizablePanel>
 

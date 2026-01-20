@@ -12,8 +12,7 @@ app.use(cors({
 }));
 app.use(express.json());
 
-let client = null;
-let activeDb = null;
+const clients = new Map();
 
 // Load environments from .env
 const environments = {};
@@ -24,10 +23,18 @@ Object.keys(process.env).forEach(key => {
     }
 });
 
+// Middleware to get client for environment
+const getClient = (req) => {
+    const env = req.headers['x-environment'];
+    if (!env) return null;
+    return clients.get(env);
+};
+
 // Middleware to check if connected
 const requireConnection = (req, res, next) => {
+    const client = getClient(req);
     if (!client) {
-        return res.status(400).json({ error: 'Not connected to any database' });
+        return res.status(400).json({ error: 'Not connected to this environment' });
     }
     next();
 };
@@ -73,11 +80,13 @@ app.post('/api/connect', authenticateToken, async (req, res) => {
     }
 
     try {
+        let client = clients.get(environment);
         if (client) {
             await client.close();
         }
         client = new MongoClient(uri);
         await client.connect();
+        clients.set(environment, client);
         console.log(`Connected to MongoDB (${environment})`);
         res.json({ success: true, message: `Connected to ${environment} successfully` });
     } catch (error) {
@@ -88,6 +97,7 @@ app.post('/api/connect', authenticateToken, async (req, res) => {
 
 app.get('/api/databases', authenticateToken, requireConnection, async (req, res) => {
     try {
+        const client = getClient(req);
         const adminDb = client.db().admin();
         const result = await adminDb.listDatabases();
 
@@ -114,6 +124,7 @@ app.get('/api/databases', authenticateToken, requireConnection, async (req, res)
 app.get('/api/collections/:dbName', authenticateToken, requireConnection, async (req, res) => {
     try {
         const { dbName } = req.params;
+        const client = getClient(req);
         const db = client.db(dbName);
         const collections = await db.listCollections().toArray();
 
@@ -132,13 +143,10 @@ app.get('/api/collections/:dbName', authenticateToken, requireConnection, async 
     }
 });
 
-app.get("/api/fields/:dbName/:collectionName", authenticateToken, async (req, res) => {
-    if (!client) {
-        return res.status(400).json({ error: "Not connected to database" });
-    }
-
+app.get("/api/fields/:dbName/:collectionName", authenticateToken, requireConnection, async (req, res) => {
     try {
         const { dbName, collectionName } = req.params;
+        const client = getClient(req);
         const db = client.db(dbName);
         const collection = db.collection(collectionName);
 
@@ -166,6 +174,7 @@ app.post('/api/execute', authenticateToken, requireConnection, async (req, res) 
     }
 
     try {
+        const client = getClient(req);
         const db = client.db(dbName);
         const result = await executeQuery(db, query);
         res.json(result);
