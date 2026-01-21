@@ -1,6 +1,6 @@
 import { useRef, useCallback, useEffect } from "react";
 import Editor, { OnMount, useMonaco } from "@monaco-editor/react";
-import { Play, Save, Clock, Trash2, BookOpen } from "lucide-react";
+import { Play, Save, Clock, Trash2, BookOpen, AlignLeft, Globe } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -14,6 +14,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
 import { createMongoCompletionProvider } from "@/lib/mongoAutocomplete";
 
 interface QueryEditorProps {
@@ -24,6 +25,10 @@ interface QueryEditorProps {
   executionTime: string | null;
   activeCollection: string | null;
   fields?: string[];
+  collections?: string[];
+  environments?: string[];
+  selectedEnvironment?: string | null;
+  onEnvironmentChange?: (env: string) => void;
 }
 
 export function QueryEditor({
@@ -34,6 +39,10 @@ export function QueryEditor({
   executionTime,
   activeCollection,
   fields = [],
+  collections = [],
+  environments = [],
+  selectedEnvironment = null,
+  onEnvironmentChange,
 }: QueryEditorProps) {
   const editorRef = useRef<unknown>(null);
   const monaco = useMonaco();
@@ -51,7 +60,8 @@ export function QueryEditor({
       const provider = createMongoCompletionProvider(
         monaco,
         () => activeCollection,
-        fields
+        fields,
+        collections
       );
 
       completionProviderRef.current = monaco.languages.registerCompletionItemProvider(
@@ -65,11 +75,18 @@ export function QueryEditor({
         }
       };
     }
-  }, [monaco, activeCollection]);
+  }, [monaco, activeCollection, collections, fields]);
 
   const handleEditorDidMount: OnMount = (editor) => {
     editorRef.current = editor;
   };
+
+  const handleFormat = useCallback(() => {
+    if (editorRef.current) {
+      const editor = editorRef.current as { getAction: (id: string) => { run: () => void } };
+      editor.getAction("editor.action.formatDocument").run();
+    }
+  }, []);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
@@ -97,6 +114,36 @@ export function QueryEditor({
           )}
         </div>
         <div className="flex items-center gap-1">
+          {environments.length > 0 && (
+            <DropdownMenu>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="ghost" size="sm" className="h-7 px-2 gap-1.5 text-xs font-medium">
+                      <Globe className="h-3.5 w-3.5 text-muted-foreground" />
+                      {selectedEnvironment || "Select Env"}
+                    </Button>
+                  </DropdownMenuTrigger>
+                </TooltipTrigger>
+                <TooltipContent>Select Environment</TooltipContent>
+              </Tooltip>
+              <DropdownMenuContent align="start" className="w-40">
+                {environments.map((env) => (
+                  <DropdownMenuItem
+                    key={env}
+                    onClick={() => onEnvironmentChange?.(env)}
+                    className={cn(
+                      "text-xs",
+                      selectedEnvironment === env && "bg-primary/10 text-primary font-semibold"
+                    )}
+                  >
+                    {env}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+
           <DropdownMenu>
             <Tooltip>
               <TooltipTrigger asChild>
@@ -131,6 +178,20 @@ export function QueryEditor({
               </Button>
             </TooltipTrigger>
             <TooltipContent>Save Query</TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                onClick={handleFormat}
+              >
+                <AlignLeft className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Format Query</TooltipContent>
           </Tooltip>
 
           <Tooltip>

@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Header } from "@/components/Header";
-import { DatabaseSidebar } from "@/components/DatabaseSidebar";
+import { DatabaseSidebar, type DatabaseType } from "@/components/DatabaseSidebar";
 import { QueryEditor } from "@/components/QueryEditor";
 import { ResultsPanel } from "@/components/ResultsPanel";
 import { QueryHistory, type HistoryItemType } from "@/components/QueryHistory";
@@ -23,6 +23,8 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import { Plus, X } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 const defaultQuery = `// Select a collection and write your query
 // Examples:
@@ -31,17 +33,64 @@ db.products.find({ price: { $lt: 100 } })`;
 
 const API_URL = "http://localhost:3001/api";
 
+interface Tab {
+  id: string;
+  name: string;
+  query: string;
+  results: Document[];
+  error: string | null;
+  isExecuting: boolean;
+  executionTime: string | null;
+  environment: string | null;
+}
+
+const getCollectionFromQuery = (query: string): string | null => {
+  const match = query.match(/db\.([a-zA-Z0-9_]+)\./);
+  return match ? match[1] : null;
+};
+
+const getEnvColorClass = (env: string | null, isActive: boolean) => {
+  if (!env) return isActive ? "bg-background border-border text-foreground" : "hover:bg-muted/60 text-muted-foreground hover:text-foreground";
+
+  const upperEnv = env.toUpperCase();
+  const isProd = upperEnv.includes("PROD");
+  const isDev = upperEnv.includes("DEV");
+
+  if (isProd) {
+    return isActive
+      ? "bg-red-500/10 border-red-500/30 text-red-500"
+      : "hover:bg-red-500/5 text-red-500/70 hover:text-red-500";
+  }
+  if (isDev) {
+    return isActive
+      ? "bg-green-500/10 border-green-500/30 text-green-500"
+      : "hover:bg-green-500/5 text-green-500/70 hover:text-green-500";
+  }
+
+  return isActive ? "bg-background border-border text-foreground" : "hover:bg-muted/60 text-muted-foreground hover:text-foreground";
+};
+
 const Index = () => {
   const navigate = useNavigate();
   const [selectedCollection, setSelectedCollection] = useState<{
     db: string;
     collection: string;
   } | null>(null);
-  const [query, setQuery] = useState(defaultQuery);
-  const [results, setResults] = useState<Document[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [isExecuting, setIsExecuting] = useState(false);
-  const [executionTime, setExecutionTime] = useState<string | null>(null);
+
+  // Tabs state
+  const [tabs, setTabs] = useState<Tab[]>([
+    {
+      id: "1",
+      name: "Query 1",
+      query: defaultQuery,
+      results: [],
+      error: null,
+      isExecuting: false,
+      executionTime: null,
+      environment: null,
+    },
+  ]);
+  const [activeTabId, setActiveTabId] = useState("1");
 
   // Connection state
   const [isConnected, setIsConnected] = useState(false);
@@ -49,7 +98,7 @@ const Index = () => {
   const [environments, setEnvironments] = useState<string[]>([]);
   const [selectedEnvironment, setSelectedEnvironment] = useState("");
   const [isConnecting, setIsConnecting] = useState(false);
-  const [databases, setDatabases] = useState<any[]>([]);
+  const [databases, setDatabases] = useState<DatabaseType[]>([]);
   const [collectionFields, setCollectionFields] = useState<string[]>([]);
 
   // History state
@@ -62,11 +111,7 @@ const Index = () => {
     localStorage.setItem("queryHistory", JSON.stringify(history));
   }, [history]);
 
-  useEffect(() => {
-    fetchEnvironments();
-  }, []);
-
-  const fetchEnvironments = async () => {
+  const fetchEnvironments = useCallback(async () => {
     try {
       const token = localStorage.getItem("token");
       const res = await fetch(`${API_URL}/environments`, {
@@ -87,7 +132,49 @@ const Index = () => {
       console.error("Failed to fetch environments:", err);
       toast.error("Failed to load environments");
     }
-  };
+  }, [navigate]);
+
+  useEffect(() => {
+    fetchEnvironments();
+  }, [fetchEnvironments]);
+
+  const activeTab = tabs.find((t) => t.id === activeTabId) || tabs[0];
+  const derivedCollection = getCollectionFromQuery(activeTab.query);
+  const displayCollection = derivedCollection || selectedCollection?.collection || null;
+
+  const updateActiveTab = useCallback((updates: Partial<Tab>) => {
+    setTabs((prev) =>
+      prev.map((tab) => (tab.id === activeTabId ? { ...tab, ...updates } : tab))
+    );
+  }, [activeTabId]);
+
+  const handleAddTab = useCallback(() => {
+    const newId = Date.now().toString();
+    const newTab: Tab = {
+      id: newId,
+      name: `Query ${tabs.length + 1}`,
+      query: defaultQuery,
+      results: [],
+      error: null,
+      isExecuting: false,
+      executionTime: null,
+      environment: activeTab.environment,
+    };
+    setTabs((prev) => [...prev, newTab]);
+    setActiveTabId(newId);
+  }, [tabs.length, activeTab.environment]);
+
+  const handleCloseTab = useCallback((e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    if (tabs.length === 1) return;
+
+    const newTabs = tabs.filter((t) => t.id !== id);
+    setTabs(newTabs);
+
+    if (activeTabId === id) {
+      setActiveTabId(newTabs[newTabs.length - 1].id);
+    }
+  }, [tabs, activeTabId]);
 
   const addToHistory = useCallback((queryStr: string, duration: string) => {
     setHistory(prev => {
@@ -104,6 +191,31 @@ const Index = () => {
   const clearHistory = useCallback(() => {
     setHistory([]);
   }, []);
+
+  const fetchDatabases = useCallback(async (env?: string) => {
+    const targetEnv = env || activeTab.environment;
+    if (!targetEnv) return;
+
+    try {
+      const token = localStorage.getItem("token");
+      const res = await fetch(`${API_URL}/databases`, {
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "x-environment": targetEnv
+        }
+      });
+      if (res.status === 401 || res.status === 403) {
+        navigate("/login");
+        return;
+      }
+      if (!res.ok) throw new Error("Failed to fetch databases");
+      const data = await res.json();
+      setDatabases(data);
+    } catch (err) {
+      console.error(err);
+      toast.error("Failed to load databases");
+    }
+  }, [navigate, activeTab.environment]);
 
   const handleConnect = async () => {
     if (!selectedEnvironment) {
@@ -136,7 +248,10 @@ const Index = () => {
       setIsConnected(true);
       setShowConnectDialog(false);
       toast.success(`Connected to ${selectedEnvironment}`);
-      fetchDatabases();
+
+      // Update active tab environment
+      updateActiveTab({ environment: selectedEnvironment });
+      fetchDatabases(selectedEnvironment);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Connection failed");
     } finally {
@@ -144,38 +259,31 @@ const Index = () => {
     }
   };
 
-  const fetchDatabases = async () => {
-    try {
-      const token = localStorage.getItem("token");
-      const res = await fetch(`${API_URL}/databases`, {
-        headers: { "Authorization": `Bearer ${token}` }
-      });
-      if (res.status === 401 || res.status === 403) {
-        navigate("/login");
-        return;
-      }
-      if (!res.ok) throw new Error("Failed to fetch databases");
-      const data = await res.json();
-      setDatabases(data);
-    } catch (err) {
-      console.error(err);
-      toast.error("Failed to load databases");
-    }
-  };
-
   const handleSelectCollection = useCallback(async (db: string, collection: string) => {
     setSelectedCollection({ db, collection });
-    setQuery(`db.${collection}.find({})`);
-    // Optionally auto-execute or just clear results
-    setResults([]);
-    setError(null);
-    setExecutionTime(null);
+
+    // Update active tab with new query template
+    setTabs(prev => prev.map(tab => {
+      if (tab.id === activeTabId) {
+        return {
+          ...tab,
+          query: `db.${collection}.find({})`,
+          results: [],
+          error: null,
+          executionTime: null
+        };
+      }
+      return tab;
+    }));
 
     // Fetch fields for the selected collection
     try {
       const token = localStorage.getItem("token");
       const res = await fetch(`${API_URL}/fields/${db}/${collection}`, {
-        headers: { "Authorization": `Bearer ${token}` }
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "x-environment": activeTab.environment || ""
+        }
       });
       if (res.status === 401 || res.status === 403) {
         navigate("/login");
@@ -191,16 +299,33 @@ const Index = () => {
       console.error("Failed to fetch fields:", err);
       setCollectionFields([]);
     }
-  }, []);
+  }, [activeTabId, navigate, activeTab.environment]);
 
   const handleExecuteQuery = useCallback(async () => {
-    if (!selectedCollection) {
-      toast.error("Please select a collection first");
+    const parsedCollection = getCollectionFromQuery(activeTab.query);
+    let dbName = selectedCollection?.db;
+
+    // Try to find DB for the parsed collection
+    if (parsedCollection) {
+      const foundDb = databases.find(db =>
+        db.collections.some(c => c.name === parsedCollection)
+      );
+      if (foundDb) {
+        dbName = foundDb.name;
+      }
+    }
+
+    // Fallback to first DB if we have databases but no selection/match
+    if (!dbName && databases.length > 0) {
+      dbName = databases[0].name;
+    }
+
+    if (!dbName) {
+      toast.error("Please select a database or collection");
       return;
     }
 
-    setIsExecuting(true);
-    setError(null);
+    updateActiveTab({ isExecuting: true, error: null });
     const startTime = performance.now();
 
     try {
@@ -209,11 +334,12 @@ const Index = () => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`
+          "Authorization": `Bearer ${token}`,
+          "x-environment": activeTab.environment || ""
         },
         body: JSON.stringify({
-          query,
-          dbName: selectedCollection.db
+          query: activeTab.query,
+          dbName: dbName
         }),
       });
 
@@ -228,26 +354,32 @@ const Index = () => {
         throw new Error(data.error || "Query execution failed");
       }
 
-      setResults(Array.isArray(data) ? data : [data]);
       const endTime = performance.now();
       const duration = `${Math.round(endTime - startTime)}ms`;
-      setExecutionTime(duration);
-      addToHistory(query, duration);
+
+      updateActiveTab({
+        results: Array.isArray(data) ? data : [data],
+        executionTime: duration,
+        isExecuting: false
+      });
+
+      addToHistory(activeTab.query, duration);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Query execution failed");
-      setResults([]);
-    } finally {
-      setIsExecuting(false);
+      updateActiveTab({
+        error: err instanceof Error ? err.message : "Query execution failed",
+        results: [],
+        isExecuting: false
+      });
     }
-  }, [query, selectedCollection]);
+  }, [activeTab.query, activeTab.environment, selectedCollection, databases, updateActiveTab, addToHistory, navigate]);
 
   const handleSelectFromHistory = useCallback((historyQuery: string) => {
-    setQuery(historyQuery);
-  }, []);
+    updateActiveTab({ query: historyQuery });
+  }, [updateActiveTab]);
 
   const handleRefreshDatabases = useCallback(() => {
     fetchDatabases();
-  }, []);
+  }, [fetchDatabases]);
 
   const handleNewConnection = useCallback(() => {
     setShowConnectDialog(true);
@@ -274,27 +406,67 @@ const Index = () => {
 
           {/* Main Content */}
           <ResizablePanel defaultSize={62}>
-            <ResizablePanelGroup direction="vertical">
-              {/* Query Editor */}
-              <ResizablePanel defaultSize={40} minSize={20}>
-                <QueryEditor
-                  query={query}
-                  onQueryChange={setQuery}
-                  onExecute={handleExecuteQuery}
-                  isExecuting={isExecuting}
-                  executionTime={executionTime}
-                  activeCollection={selectedCollection?.collection || null}
-                  fields={collectionFields}
-                />
-              </ResizablePanel>
+            <div className="h-full flex flex-col">
+              {/* Tabs Bar */}
+              <div className="flex items-center border-b bg-muted/40 px-1 pt-1 gap-1 overflow-x-auto scrollbar-none">
+                {tabs.map((tab) => (
+                  <div
+                    key={tab.id}
+                    className={cn(
+                      "group flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-t-md cursor-pointer border-t border-x border-transparent select-none min-w-[100px] max-w-[200px] transition-colors",
+                      getEnvColorClass(tab.environment, activeTabId === tab.id)
+                    )}
+                    onClick={() => setActiveTabId(tab.id)}
+                  >
+                    <span className="truncate flex-1">{tab.name}</span>
+                    {tabs.length > 1 && (
+                      <button
+                        onClick={(e) => handleCloseTab(e, tab.id)}
+                        className="opacity-0 group-hover:opacity-100 hover:bg-muted-foreground/20 rounded p-0.5 transition-all"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                <button
+                  onClick={handleAddTab}
+                  className="p-1.5 hover:bg-muted/60 rounded-md text-muted-foreground hover:text-foreground transition-colors ml-1"
+                  title="New Tab"
+                >
+                  <Plus className="h-4 w-4" />
+                </button>
+              </div>
 
-              <ResizableHandle withHandle />
+              <ResizablePanelGroup direction="vertical">
+                {/* Query Editor */}
+                <ResizablePanel defaultSize={40} minSize={20}>
+                  <QueryEditor
+                    query={activeTab.query}
+                    onQueryChange={(q) => updateActiveTab({ query: q })}
+                    onExecute={handleExecuteQuery}
+                    isExecuting={activeTab.isExecuting}
+                    executionTime={activeTab.executionTime}
+                    activeCollection={displayCollection}
+                    fields={collectionFields}
+                    collections={databases.flatMap(db => db.collections.map(c => c.name))}
+                    environments={environments}
+                    selectedEnvironment={activeTab.environment}
+                    onEnvironmentChange={(env) => {
+                      updateActiveTab({ environment: env });
+                      fetchDatabases(env);
+                    }}
+                  />
+                </ResizablePanel>
 
-              {/* Results Panel */}
-              <ResizablePanel defaultSize={60} minSize={30}>
-                <ResultsPanel results={results} error={error} />
-              </ResizablePanel>
-            </ResizablePanelGroup>
+                <ResizableHandle withHandle />
+
+                {/* Results Panel */}
+                <ResizablePanel defaultSize={60} minSize={30}>
+                  <ResultsPanel results={activeTab.results} error={activeTab.error} />
+                </ResizablePanel>
+              </ResizablePanelGroup>
+            </div>
           </ResizablePanel>
 
           <ResizableHandle withHandle />
@@ -312,7 +484,7 @@ const Index = () => {
 
       <StatusBar
         selectedCollection={selectedCollection}
-        documentCount={results.length}
+        documentCount={activeTab.results.length}
       />
 
       <Dialog open={showConnectDialog} onOpenChange={setShowConnectDialog}>

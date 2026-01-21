@@ -7,11 +7,12 @@ const jwt = require('jsonwebtoken');
 const app = express();
 const port = process.env.PORT || 3001;
 
-app.use(cors());
+app.use(cors({
+    origin: 'http://localhost:8080'
+}));
 app.use(express.json());
 
-let client = null;
-let activeDb = null;
+const clients = new Map();
 
 // Load environments from .env
 const environments = {};
@@ -22,10 +23,18 @@ Object.keys(process.env).forEach(key => {
     }
 });
 
+// Middleware to get client for environment
+const getClient = (req) => {
+    const env = req.headers['x-environment'];
+    if (!env) return null;
+    return clients.get(env);
+};
+
 // Middleware to check if connected
 const requireConnection = (req, res, next) => {
+    const client = getClient(req);
     if (!client) {
-        return res.status(400).json({ error: 'Not connected to any database' });
+        return res.status(400).json({ error: 'Not connected to this environment' });
     }
     next();
 };
@@ -71,11 +80,13 @@ app.post('/api/connect', authenticateToken, async (req, res) => {
     }
 
     try {
+        let client = clients.get(environment);
         if (client) {
             await client.close();
         }
         client = new MongoClient(uri);
         await client.connect();
+        clients.set(environment, client);
         console.log(`Connected to MongoDB (${environment})`);
         res.json({ success: true, message: `Connected to ${environment} successfully` });
     } catch (error) {
@@ -86,6 +97,7 @@ app.post('/api/connect', authenticateToken, async (req, res) => {
 
 app.get('/api/databases', authenticateToken, requireConnection, async (req, res) => {
     try {
+        const client = getClient(req);
         const adminDb = client.db().admin();
         const result = await adminDb.listDatabases();
 
@@ -112,6 +124,7 @@ app.get('/api/databases', authenticateToken, requireConnection, async (req, res)
 app.get('/api/collections/:dbName', authenticateToken, requireConnection, async (req, res) => {
     try {
         const { dbName } = req.params;
+        const client = getClient(req);
         const db = client.db(dbName);
         const collections = await db.listCollections().toArray();
 
@@ -130,13 +143,10 @@ app.get('/api/collections/:dbName', authenticateToken, requireConnection, async 
     }
 });
 
-app.get("/api/fields/:dbName/:collectionName", authenticateToken, async (req, res) => {
-    if (!client) {
-        return res.status(400).json({ error: "Not connected to database" });
-    }
-
+app.get("/api/fields/:dbName/:collectionName", authenticateToken, requireConnection, async (req, res) => {
     try {
         const { dbName, collectionName } = req.params;
+        const client = getClient(req);
         const db = client.db(dbName);
         const collection = db.collection(collectionName);
 
@@ -164,6 +174,7 @@ app.post('/api/execute', authenticateToken, requireConnection, async (req, res) 
     }
 
     try {
+        const client = getClient(req);
         const db = client.db(dbName);
         const result = await executeQuery(db, query);
         res.json(result);
@@ -199,63 +210,37 @@ function getDotNotationKeys(obj, prefix = '') {
 // WARNING: This is a basic implementation and has security risks if exposed publicly.
 // It is intended for a local developer tool.
 async function executeQuery(db, queryStr) {
-    // Basic parsing logic
-    // Expected format: db.collection.find(...) or db.collection.aggregate(...)
+    // Create a proxy to handle db.collectionName
+    const proxyDb = new Proxy({}, {
+        get: (target, colName) => {
+            if (typeof colName !== 'string') return undefined;
+            return db.collection(colName);
+        }
+    });
 
-    // Remove 'db.' prefix if present
-    const cleanQuery = queryStr.trim();
+    // Execution context with common MongoDB types
+    const context = {
+        db: proxyDb,
+        ObjectId: require('mongodb').ObjectId,
+        ISODate: (d) => d ? new Date(d) : new Date(),
+        // Add other helpers if needed
+    };
 
-    // Regex to extract collection name and operation
-    const match = cleanQuery.match(/^db\.([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)\((.*)\)$/s);
+    const keys = Object.keys(context);
+    const values = Object.values(context);
 
-    if (!match) {
-        throw new Error('Invalid query format. Use db.collection.operation(...)');
+    // Execute the query string
+    // We wrap it in an async function to support await if needed, 
+    // though most mongo driver methods return promises that we handle below.
+    const func = new Function(...keys, `return ${queryStr.trim()}`);
+    let result = await func(...values);
+
+    // If the result is a cursor, convert to array
+    if (result && typeof result.toArray === 'function') {
+        return await result.toArray();
     }
 
-    const [, collectionName, operation, argsStr] = match;
-    const collection = db.collection(collectionName);
-
-    if (typeof collection[operation] !== 'function') {
-        throw new Error(`Operation ${operation} not supported on collection`);
-    }
-
-    // Parse arguments
-    // This is the tricky part. We need to safely evaluate the arguments string to JSON/Objects.
-    // For now, we'll use a safer evaluation approach or JSON.parse if possible, 
-    // but MongoDB queries often contain non-JSON types like ObjectId, ISODate, etc.
-    // For this MVP, we will use `eval` with a restricted context or a library if available.
-    // Given the constraints and the "developer tool" nature, we'll use `new Function` with some context.
-
-    const args = parseArgs(argsStr);
-
-    let cursor = collection[operation](...args);
-
-    // Handle cursor methods like .sort(), .limit(), .toArray() if they are chained
-    // The current regex only captures the main call. 
-    // To support chaining, we'd need a more robust parser.
-    // For now, let's assume the user might want to see results, so if it's a cursor, we convert to array.
-
-    if (cursor && typeof cursor.toArray === 'function') {
-        const results = await cursor.toArray();
-        return results;
-    }
-
-    return cursor;
-}
-
-function parseArgs(argsStr) {
-    // This is a very naive parser. In a real app, use a proper JS parser.
-    // We want to support objects like { name: "John" } which isn't strict JSON.
-    try {
-        // Wrap in array to handle multiple arguments
-        // Replace common MongoDB types with placeholders or implementations if needed
-        // For now, let's just try to evaluate it as JS code returning an array of args
-        const func = new Function(`return [${argsStr}]`);
-        return func();
-    } catch (e) {
-        console.error("Error parsing arguments:", e);
-        throw new Error("Failed to parse query arguments. Ensure valid syntax.");
-    }
+    return result;
 }
 
 app.listen(port, () => {
