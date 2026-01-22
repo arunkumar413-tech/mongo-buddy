@@ -110,9 +110,8 @@ const Index = () => {
 
   const fetchEnvironments = useCallback(async () => {
     try {
-      const token = localStorage.getItem("token");
       const res = await fetch(`${API_URL}/environments`, {
-        headers: { "Authorization": `Bearer ${token}` }
+        credentials: "include"
       });
       if (res.status === 401 || res.status === 403) {
         navigate("/login");
@@ -131,9 +130,23 @@ const Index = () => {
     }
   }, [navigate]);
 
+  const checkSession = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_URL}/me`, {
+        credentials: "include"
+      });
+      if (!res.ok) {
+        navigate("/login");
+      }
+    } catch (err) {
+      navigate("/login");
+    }
+  }, [navigate]);
+
   useEffect(() => {
+    checkSession();
     fetchEnvironments();
-  }, [fetchEnvironments]);
+  }, [checkSession, fetchEnvironments]);
 
   const activeTab = tabs.find((t) => t.id === activeTabId) || tabs[0];
   const derivedCollection = getCollectionFromQuery(activeTab.query);
@@ -194,12 +207,11 @@ const Index = () => {
     if (!targetEnv) return;
 
     try {
-      const token = localStorage.getItem("token");
       const res = await fetch(`${API_URL}/databases`, {
         headers: {
-          "Authorization": `Bearer ${token}`,
           "x-environment": targetEnv
-        }
+        },
+        credentials: "include"
       });
       if (res.status === 401 || res.status === 403) {
         navigate("/login");
@@ -222,14 +234,13 @@ const Index = () => {
 
     setIsConnecting(true);
     try {
-      const token = localStorage.getItem("token");
       const res = await fetch(`${API_URL}/connect`, {
         method: "POST",
         headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`
+          "Content-Type": "application/json"
         },
         body: JSON.stringify({ environment: selectedEnvironment }),
+        credentials: "include"
       });
 
       if (res.status === 401 || res.status === 403) {
@@ -275,12 +286,11 @@ const Index = () => {
 
     // Fetch fields for the selected collection
     try {
-      const token = localStorage.getItem("token");
       const res = await fetch(`${API_URL}/fields/${db}/${collection}`, {
         headers: {
-          "Authorization": `Bearer ${token}`,
           "x-environment": activeTab.environment || ""
-        }
+        },
+        credentials: "include"
       });
       if (res.status === 401 || res.status === 403) {
         navigate("/login");
@@ -311,12 +321,11 @@ const Index = () => {
       if (!foundDb) return;
 
       try {
-        const token = localStorage.getItem("token");
         const res = await fetch(`${API_URL}/fields/${foundDb.name}/${displayCollection}`, {
           headers: {
-            "Authorization": `Bearer ${token}`,
             "x-environment": activeTab.environment || ""
-          }
+          },
+          credentials: "include"
         });
 
         if (res.ok) {
@@ -359,18 +368,17 @@ const Index = () => {
     const startTime = performance.now();
 
     try {
-      const token = localStorage.getItem("token");
       const res = await fetch(`${API_URL}/execute`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${token}`,
           "x-environment": activeTab.environment || ""
         },
         body: JSON.stringify({
           query: activeTab.query,
           dbName: dbName
         }),
+        credentials: "include"
       });
 
       if (res.status === 401 || res.status === 403) {

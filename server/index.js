@@ -3,14 +3,19 @@ const { MongoClient, ObjectId } = require('mongodb');
 const cors = require('cors');
 require('dotenv').config();
 const jwt = require('jsonwebtoken');
+const cookieParser = require('cookie-parser');
+const helmet = require('helmet');
 
 const app = express();
 const port = process.env.PORT || 3001;
 
+app.use(helmet());
 app.use(cors({
-    origin: 'http://localhost:8080'
+    origin: 'http://localhost:8080',
+    credentials: true
 }));
 app.use(express.json());
+app.use(cookieParser());
 
 const clients = new Map();
 
@@ -41,8 +46,7 @@ const requireConnection = (req, res, next) => {
 
 // Auth Middleware
 const authenticateToken = (req, res, next) => {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
+    const token = req.cookies.token;
 
     if (!token) return res.status(401).json({ error: 'Unauthorized' });
 
@@ -56,11 +60,28 @@ const authenticateToken = (req, res, next) => {
 app.post('/api/login', (req, res) => {
     const { password } = req.body;
     if (password === process.env.AUTH_PASSWORD) {
-        const accessToken = jwt.sign({ name: 'user' }, process.env.JWT_SECRET);
-        res.json({ accessToken });
+        const accessToken = jwt.sign({ name: 'user' }, process.env.JWT_SECRET, { expiresIn: '24h' });
+
+        res.cookie('token', accessToken, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'strict',
+            maxAge: 24 * 60 * 60 * 1000 // 24 hours
+        });
+
+        res.json({ success: true });
     } else {
         res.status(401).json({ error: 'Invalid password' });
     }
+});
+
+app.post('/api/logout', (req, res) => {
+    res.clearCookie('token');
+    res.json({ success: true });
+});
+
+app.get('/api/me', authenticateToken, (req, res) => {
+    res.json({ user: req.user });
 });
 
 app.get('/api/environments', authenticateToken, (req, res) => {

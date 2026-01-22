@@ -79,16 +79,20 @@ export function Header() {
           variant="ghost"
           size="sm"
           className="ml-2 text-xs"
-          onClick={() => {
-            if (localStorage.getItem("token")) {
-              localStorage.removeItem("token");
-              window.location.reload();
-            } else {
+          onClick={async () => {
+            try {
+              await fetch("http://localhost:3001/api/logout", {
+                method: "POST",
+                credentials: "include"
+              });
+              window.location.href = "/login";
+            } catch (err) {
+              console.error("Logout failed:", err);
               window.location.href = "/login";
             }
           }}
         >
-          {localStorage.getItem("token") ? "Logout" : "Login"}
+          Logout
         </Button>
       </div>
     </header>
