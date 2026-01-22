@@ -301,6 +301,39 @@ const Index = () => {
     }
   }, [activeTabId, navigate, activeTab.environment]);
 
+  // Fetch fields when the collection in the query changes
+  useEffect(() => {
+    if (!displayCollection || !activeTab.environment) return;
+
+    const fetchFieldsForCollection = async () => {
+      // Find the database containing this collection
+      const foundDb = databases.find(db =>
+        db.collections.some(c => c.name === displayCollection)
+      );
+
+      if (!foundDb) return;
+
+      try {
+        const token = localStorage.getItem("token");
+        const res = await fetch(`${API_URL}/fields/${foundDb.name}/${displayCollection}`, {
+          headers: {
+            "Authorization": `Bearer ${token}`,
+            "x-environment": activeTab.environment || ""
+          }
+        });
+
+        if (res.ok) {
+          const fields = await res.json();
+          setCollectionFields(fields);
+        }
+      } catch (err) {
+        console.error("Failed to fetch fields for typed collection:", err);
+      }
+    };
+
+    fetchFieldsForCollection();
+  }, [displayCollection, activeTab.environment, databases]);
+
   const handleExecuteQuery = useCallback(async () => {
     const parsedCollection = getCollectionFromQuery(activeTab.query);
     let dbName = selectedCollection?.db;
