@@ -1,11 +1,12 @@
 import { useState, memo } from "react";
-import { Table, Code, Copy, Download, ChevronDown, ChevronRight, FileJson } from "lucide-react";
+import { Table, Code, Copy, Download, ChevronDown, ChevronRight, FileJson, Clock, Globe } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { format } from "date-fns";
 import { type Document } from "@/data/mockData";
 
 interface ResultsPanelProps {
@@ -18,6 +19,7 @@ type ViewMode = "table" | "json";
 export const ResultsPanel = memo(function ResultsPanel({ results, error }: ResultsPanelProps) {
   const [viewMode, setViewMode] = useState<ViewMode>("table");
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
+  const [useLocalTime, setUseLocalTime] = useState(false);
 
   const toggleRow = (index: number) => {
     const newExpanded = new Set(expandedRows);
@@ -122,7 +124,13 @@ export const ResultsPanel = memo(function ResultsPanel({ results, error }: Resul
             </div>
           </div>
         ) : viewMode === "table" ? (
-          <TableView results={results} expandedRows={expandedRows} toggleRow={toggleRow} />
+          <TableView
+            results={results}
+            expandedRows={expandedRows}
+            toggleRow={toggleRow}
+            useLocalTime={useLocalTime}
+            setUseLocalTime={setUseLocalTime}
+          />
         ) : (
           <JsonView results={results} />
         )}
@@ -135,9 +143,11 @@ interface TableViewProps {
   results: Document[];
   expandedRows: Set<number>;
   toggleRow: (index: number) => void;
+  useLocalTime: boolean;
+  setUseLocalTime: (val: boolean) => void;
 }
 
-function TableView({ results, expandedRows, toggleRow }: TableViewProps) {
+function TableView({ results, expandedRows, toggleRow, useLocalTime, setUseLocalTime }: TableViewProps) {
   // Get all unique keys from results
   const allKeys = Array.from(
     new Set(results.flatMap((doc) => Object.keys(doc)))
@@ -149,14 +159,40 @@ function TableView({ results, expandedRows, toggleRow }: TableViewProps) {
         <thead className="bg-muted sticky top-0">
           <tr>
             <th className="w-8 px-2 py-2"></th>
-            {allKeys.map((key) => (
-              <th
-                key={key}
-                className="px-3 py-2 text-left font-semibold text-muted-foreground border-r border-border last:border-r-0"
-              >
-                {key}
-              </th>
-            ))}
+            {allKeys.map((key) => {
+              const isDateField = key === "createdAt" || key === "updatedAt";
+              return (
+                <th
+                  key={key}
+                  className="px-3 py-2 text-left font-semibold text-muted-foreground border-r border-border last:border-r-0"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span>{key}</span>
+                    {isDateField && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-5 w-5 hover:bg-muted-foreground/10"
+                            onClick={() => setUseLocalTime(!useLocalTime)}
+                          >
+                            {useLocalTime ? (
+                              <Clock className="h-3 w-3 text-primary" />
+                            ) : (
+                              <Globe className="h-3 w-3" />
+                            )}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          Switch to {useLocalTime ? "UTC" : "Local Time"}
+                        </TooltipContent>
+                      </Tooltip>
+                    )}
+                  </div>
+                </th>
+              );
+            })}
           </tr>
         </thead>
         <tbody>
@@ -168,6 +204,7 @@ function TableView({ results, expandedRows, toggleRow }: TableViewProps) {
               keys={allKeys}
               isExpanded={expandedRows.has(index)}
               onToggle={() => toggleRow(index)}
+              useLocalTime={useLocalTime}
             />
           ))}
         </tbody>
@@ -182,9 +219,10 @@ interface TableRowProps {
   keys: string[];
   isExpanded: boolean;
   onToggle: () => void;
+  useLocalTime: boolean;
 }
 
-function TableRow({ doc, keys, isExpanded, onToggle }: TableRowProps) {
+function TableRow({ doc, keys, isExpanded, onToggle, useLocalTime }: TableRowProps) {
   const hasNestedData = Object.values(doc).some(
     (v) => typeof v === "object" && v !== null
   );
@@ -205,7 +243,11 @@ function TableRow({ doc, keys, isExpanded, onToggle }: TableRowProps) {
         </td>
         {keys.map((key) => (
           <td key={key} className="px-3 py-2 border-r border-border last:border-r-0">
-            <CellValue value={doc[key]} />
+            <CellValue
+              value={doc[key]}
+              isDateField={key === "createdAt" || key === "updatedAt"}
+              useLocalTime={useLocalTime}
+            />
           </td>
         ))}
       </tr>
@@ -222,13 +264,39 @@ function TableRow({ doc, keys, isExpanded, onToggle }: TableRowProps) {
   );
 }
 
-function CellValue({ value }: { value: unknown }) {
+function CellValue({
+  value,
+  isDateField,
+  useLocalTime
+}: {
+  value: unknown;
+  isDateField?: boolean;
+  useLocalTime?: boolean;
+}) {
   if (value === null) {
     return <span className="text-muted-foreground italic">null</span>;
   }
   if (value === undefined) {
     return <span className="text-muted-foreground italic">undefined</span>;
   }
+
+  // Handle Date formatting
+  if (isDateField && (typeof value === "string" || value instanceof Date)) {
+    try {
+      const date = typeof value === "string" ? new Date(value) : value;
+      if (!isNaN(date.getTime())) {
+        if (useLocalTime) {
+          // Format: YYYY-MMM-DD (eg: 2026-Apr-30-7:30 PM)
+          // date-fns format: yyyy-MMM-dd-h:mm a
+          return <span className="text-info font-mono">{format(date, "yyyy-MMM-dd-h:mm a")}</span>;
+        }
+        return <span className="text-info font-mono">{date.toISOString()}</span>;
+      }
+    } catch (e) {
+      // Fallback to string representation if parsing fails
+    }
+  }
+
   if (typeof value === "boolean") {
     return (
       <span className={value ? "text-success" : "text-destructive"}>
