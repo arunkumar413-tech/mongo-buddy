@@ -26,10 +26,7 @@ import { toast } from "sonner";
 import { Plus, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const defaultQuery = `// Select a collection and write your query
-// Examples:
-db.users.find({})
-db.products.find({ price: { $lt: 100 } })`;
+const defaultQuery = `db.users.find({});`;
 
 const API_URL = "http://localhost:3001/api";
 
